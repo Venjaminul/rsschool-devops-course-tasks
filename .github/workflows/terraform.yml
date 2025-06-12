@@ -6,7 +6,7 @@ on:
       - main
   pull_request:
     branches:
-      - main
+      - '**'     # orice branch în PR
 
 env:
   AWS_REGION: 'us-east-1'
@@ -16,7 +16,6 @@ jobs:
   terraform-check:
     name: Terraform Format Check
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -33,7 +32,6 @@ jobs:
     name: Terraform Plan
     runs-on: ubuntu-latest
     needs: terraform-check
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -56,15 +54,38 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
-      - name: Terraform Plan
-        run: terraform plan -out=tfplan
+      - name: Terraform Plan and Save Output
+        run: |
+          terraform plan -no-color -out=tfplan > plan.raw
+          terraform show -no-color tfplan > plan.txt
+
+      - name: Create comment markdown with Terraform Plan output
+        run: |
+          echo "### Terraform Plan Output" > comment.md
+          echo '```terraform' >> comment.md
+          cat plan.txt >> comment.md
+          echo '```' >> comment.md
+
+      - name: Post Terraform Plan as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('comment.md', 'utf8');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            })
 
   terraform-apply:
     name: Terraform Apply
     runs-on: ubuntu-latest
     needs: terraform-plan
     if: github.ref == 'refs/heads/main'
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
